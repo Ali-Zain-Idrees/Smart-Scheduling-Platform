@@ -42,8 +42,9 @@ if "settings" not in st.session_state:
 if "current_week" not in st.session_state:
     st.session_state.current_week = 1
 
-if "selected_clear_tasks" not in st.session_state:
-    st.session_state.selected_clear_tasks = []
+# Messages for user feedback
+if "form_message" not in st.session_state:
+    st.session_state.form_message = None
 
 # ==========================================
 # SIDEBAR NAVIGATION & WEEK CONTROLLER
@@ -64,6 +65,16 @@ selected_week = st.sidebar.number_input("Select Week (Week 1..N)", min_value=1, 
 if menu == "Timetable & Daily Routine":
     st.markdown(f"<div class='main-header'>🗓️ Weekly Timetable Manager — Week {selected_week}</div>", unsafe_allow_html=True)
     
+    # Display Success / Warning feedback message if set
+    if st.session_state.form_message:
+        msg_type, msg_text = st.session_state.form_message
+        if msg_type == "success":
+            st.success(msg_text)
+        elif msg_type == "warning":
+            st.warning(msg_text)
+        # Clear message after display
+        st.session_state.form_message = None
+
     # Task Creation Popover / Form
     with st.popover("➕ Add New Planned Task"):
         with st.form("add_task_form", clear_on_submit=True):
@@ -78,22 +89,44 @@ if menu == "Timetable & Daily Routine":
                 end_t = st.time_input("End Time", value=time(10, 0))
                 
             submit = st.form_submit_button("Add Task")
-            if submit and title:
-                new_id = len(st.session_state.tasks) + 1
-                st.session_state.tasks.append({
-                    "id": new_id,
-                    "title": title,
-                    "week": selected_week,
-                    "day": day,
-                    "start_time": str(start_t)[:5],
-                    "end_time": str(end_t)[:5],
-                    "original_time": f"{day} {str(start_t)[:5]} - {str(end_t)[:5]}",
-                    "status": "PENDING",
-                    "is_rescheduled": False,
-                    "completed": False,
-                    "category": category
-                })
-                st.rerun()
+            if submit:
+                if not title.strip():
+                    st.session_state.form_message = ("warning", "⚠️ Task title cannot be empty.")
+                    st.rerun()
+                else:
+                    start_str = str(start_t)[:5]
+                    end_str = str(end_t)[:5]
+                    
+                    # Duplicate Detection Logic
+                    is_duplicate = any(
+                        t["week"] == selected_week and
+                        t["day"] == day and
+                        t["title"].strip().lower() == title.strip().lower() and
+                        t["start_time"] == start_str and
+                        t["end_time"] == end_str
+                        for t in st.session_state.tasks
+                    )
+                    
+                    if is_duplicate:
+                        st.session_state.form_message = ("warning", f"⚠️ Task '{title}' already exists for {day} ({start_str} - {end_str})! Please make changes or add another task.")
+                        st.rerun()
+                    else:
+                        new_id = len(st.session_state.tasks) + 1
+                        st.session_state.tasks.append({
+                            "id": new_id,
+                            "title": title.strip(),
+                            "week": selected_week,
+                            "day": day,
+                            "start_time": start_str,
+                            "end_time": end_str,
+                            "original_time": f"{day} {start_str} - {end_str}",
+                            "status": "PENDING",
+                            "is_rescheduled": False,
+                            "completed": False,
+                            "category": category
+                        })
+                        st.session_state.form_message = ("success", f"✅ Task '{title}' added successfully to Week {selected_week}!")
+                        st.rerun()
 
     # Task List Display with Tri-Color Logic
     week_tasks = [t for t in st.session_state.tasks if t["week"] == selected_week]
@@ -175,7 +208,7 @@ if menu == "Timetable & Daily Routine":
         st.write("Click below to clear all tasks for the current week schedule.")
         if st.button("Clear All Tasks for Week " + str(selected_week), type="primary"):
             st.session_state.tasks = [t for t in st.session_state.tasks if t["week"] != selected_week]
-            st.success(f"All tasks for Week {selected_week} have been cleared.")
+            st.session_state.form_message = ("success", f"All tasks for Week {selected_week} have been cleared.")
             st.rerun()
 
     with tab2:
@@ -193,7 +226,7 @@ if menu == "Timetable & Daily Routine":
             if st.button("Clear Selected Tasks", type="primary"):
                 if selected_to_remove:
                     st.session_state.tasks = [t for t in st.session_state.tasks if t["id"] not in selected_to_remove]
-                    st.success("Selected tasks have been removed.")
+                    st.session_state.form_message = ("success", "Selected tasks have been removed successfully.")
                     st.rerun()
                 else:
                     st.warning("Please select at least one task to clear.")
