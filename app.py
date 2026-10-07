@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, date, time
 
 # ==========================================
-# PAGE CONFIGURATION & LIVE TIME JS
+# PAGE CONFIGURATION & CSS STYLING
 # ==========================================
 st.set_page_config(
     page_title="Smart Timetable Platform",
@@ -12,32 +12,21 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Hide sidebar completely via CSS
+# Custom Styling (Text colors updated to White for high visibility)
 st.markdown("""
 <style>
     [data-testid="stSidebar"] { display: none; }
-    .main-header { font-size: 28px; font-weight: 800; color: #0F172A; margin-bottom: 4px; }
-    .sub-header-tag { font-size: 20px; font-weight: 600; color: #2563EB; }
-    .greeting-text { font-size: 24px; font-weight: 700; color: #1E293B; margin-bottom: 10px; }
+    .main-header { font-size: 28px; font-weight: 800; color: #FFFFFF !important; margin-bottom: 4px; }
+    .sub-header-tag { font-size: 20px; font-weight: 600; color: #60A5FA !important; }
+    .greeting-text { font-size: 26px; font-weight: 800; color: #FFFFFF !important; margin-bottom: 10px; }
+    .live-time-text { font-size: 16px; font-weight: 600; color: #FFFFFF !important; }
     .badge-green { background-color: #DCFCE7; color: #15803D; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #86EFAC; display: inline-block; }
     .badge-blue { background-color: #DBEAFE; color: #1D4ED8; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #93C5FD; display: inline-block; }
     .badge-red { background-color: #FEE2E2; color: #B91C1C; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #FCA5A5; display: inline-block; }
     .badge-gray { background-color: #F1F5F9; color: #475569; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #CBD5E1; display: inline-block; }
-    .hint-text { font-size: 13px; color: #64748B; margin-bottom: 8px; font-style: italic; }
+    .hint-text { font-size: 13px; color: #94A3B8; margin-bottom: 8px; font-style: italic; }
 </style>
 """, unsafe_allow_html=True)
-
-# Live Device Time Reader JS Injection
-st.components.v1.html("""
-    <script>
-        function updateDeviceTime() {
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-US', { hour12: true });
-            window.parent.postMessage({type: 'streamlit:setComponentValue', value: timeStr}, '*');
-        }
-        setInterval(updateDeviceTime, 1000);
-    </script>
-""", height=0)
 
 # Helper Functions
 def format_time_12hr(t_obj):
@@ -70,7 +59,7 @@ def get_dynamic_greeting(user_name):
 # SESSION STATE INITIALIZATION
 # ==========================================
 if "user_name" not in st.session_state:
-    st.session_state.user_name = None  # None indicates initial startup state
+    st.session_state.user_name = None
 
 if "view_format" not in st.session_state:
     st.session_state.view_format = "List"
@@ -106,8 +95,8 @@ if "form_message" not in st.session_state:
 # INITIAL STARTUP SCREEN (NAME & FORMAT SETUP)
 # ==========================================
 if st.session_state.user_name is None:
-    st.markdown("<h2 style='text-align: center; color: #0F172A;'>⚡ Welcome to Smart Timetable Platform</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #64748B;'>Set up your quick profile to get started.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #FFFFFF;'>⚡ Welcome to Smart Timetable Platform</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94A3B8;'>Set up your quick profile to get started.</p>", unsafe_allow_html=True)
     
     col_a, col_b, col_c = st.columns([1, 2, 1])
     with col_b:
@@ -127,7 +116,7 @@ if st.session_state.user_name is None:
                 st.session_state.view_format = init_format
                 st.rerun()
 
-        st.markdown("<p style='text-align: center; margin-top: 10px;'>OR</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; margin-top: 10px; color: #FFFFFF;'>OR</p>", unsafe_allow_html=True)
         if st.button("Continue Without Name ➡️", use_container_width=True):
             st.session_state.user_name = ""
             st.rerun()
@@ -135,7 +124,7 @@ if st.session_state.user_name is None:
     st.stop()
 
 # ==========================================
-# TOP HEADER BAR & SETTINGS MENU (TOP RIGHT)
+# TOP HEADER BAR & SETTINGS (TOP RIGHT)
 # ==========================================
 top_col1, top_col2 = st.columns([8, 2])
 
@@ -144,7 +133,7 @@ with top_col1:
     st.markdown(f"<div class='greeting-text'>{greeting_msg}</div>", unsafe_allow_html=True)
 
 with top_col2:
-    with st.popover("⚙️ Settings Menu"):
+    with st.popover("⚙️ Settings"):
         st.subheader("👤 User Profile")
         new_name_val = st.text_input("Edit Name", value=st.session_state.user_name)
         if st.button("Update Name"):
@@ -171,7 +160,7 @@ st.divider()
 # MODULE 1: TIMETABLE MANAGER
 # ==========================================
 if st.session_state.active_tab == "Timetable Manager":
-    # Enhanced Contrast Heading
+    # White Color Main Heading
     st.markdown(f"""
         <div class='main-header'>
             🎯 Timetable Manager 
@@ -179,8 +168,29 @@ if st.session_state.active_tab == "Timetable Manager":
         </div>
     """, unsafe_allow_html=True)
     
-    # Live Device Time with Explanation Note
-    st.markdown(f"🕒 **Live Device Time:** `{datetime.now().strftime('%I:%M:%S %p')}`")
+    # Accurate Real-Time Device Time Injection (JavaScript Direct Sync)
+    st.components.v1.html("""
+        <div style="font-family: sans-serif; color: #FFFFFF; font-size: 15px; font-weight: 600;">
+            🕒 <b>Live Device Time:</b> <span id="clock" style="color: #60A5FA;">--:--:-- --</span>
+        </div>
+        <script>
+            function updateClock() {
+                const now = new Date();
+                let hours = now.getHours();
+                let minutes = now.getMinutes();
+                let seconds = now.getSeconds();
+                let ampm = hours >= 12 ? 'PM' : 'AM';
+                hours = hours % 12;
+                hours = hours ? hours : 12;
+                minutes = minutes < 10 ? '0' + minutes : minutes;
+                seconds = seconds < 10 ? '0' + seconds : seconds;
+                document.getElementById('clock').innerHTML = hours + ':' + minutes + ':' + seconds + ' ' + ampm;
+            }
+            setInterval(updateClock, 1000);
+            updateClock();
+        </script>
+    """, height=35)
+    
     st.caption("ℹ️ *Live Device Time tumhare system/mobile ka exact 12-hour AM/PM time sync kar raha hai taake scheduled tasks ke notifications aur alarms bilkul accurate time par trigger ho sakein.*")
 
     if st.session_state.form_message:
