@@ -25,20 +25,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Helper Function to Format Time object to 12-Hour AM/PM String
+def format_time_12hr(t_obj):
+    if isinstance(t_obj, time):
+        return t_obj.strftime("%I:%M %p")
+    return str(t_obj)
+
 # ==========================================
 # SESSION STATE INITIALIZATION (PERSISTENCE)
 # ==========================================
 if "users" not in st.session_state:
-    st.session_state.users = {}  # Format: {email: password}
+    st.session_state.users = {}
 
 if "last_email" not in st.session_state:
     st.session_state.last_email = None
 
 if "current_user" not in st.session_state:
-    st.session_state.current_user = None  # None = Not logged in, "Guest" = Guest Mode, Email = Logged in user
+    st.session_state.current_user = None
 
 if "schedule_type" not in st.session_state:
-    st.session_state.schedule_type = None  # "Weekly" or "Monthly"
+    st.session_state.schedule_type = None
 
 if "first_time_modal_shown" not in st.session_state:
     st.session_state.first_time_modal_shown = False
@@ -70,7 +76,6 @@ if st.session_state.current_user is None:
     
     col_a, col_b, col_c = st.columns([1, 2, 1])
     with col_b:
-        # Check if user previously logged in
         if st.session_state.last_email:
             st.info(f"💡 **It seems like you already have an account:** `{st.session_state.last_email}`")
             
@@ -120,7 +125,7 @@ if st.session_state.current_user is None:
                 st.session_state.last_email = None
                 st.rerun()
 
-    st.stop()  # Stop execution until user authenticates
+    st.stop()
 
 # ==========================================
 # FIRST TIME SCHEDULE TYPE POPUP (DIALOG)
@@ -141,7 +146,6 @@ def schedule_selection_dialog():
 if not st.session_state.first_time_modal_shown:
     schedule_selection_dialog()
 
-# Fallback default if modal isn't set yet
 if not st.session_state.schedule_type:
     st.session_state.schedule_type = "Weekly"
 
@@ -150,7 +154,6 @@ if not st.session_state.schedule_type:
 # ==========================================
 st.sidebar.title("🎯 Smart Schedule App")
 
-# User Account Header in Sidebar
 st.sidebar.markdown(f"👤 **Logged in as:** `{st.session_state.current_user}`")
 c_logout, c_switch = st.sidebar.columns(2)
 with c_logout:
@@ -184,7 +187,6 @@ selected_week = st.sidebar.number_input("Select Week (Week 1..N)", min_value=1, 
 if menu == "Timetable Manager":
     st.markdown(f"<div class='main-header'>🎯 Timetable Manager ({st.session_state.schedule_type} Mode) — Week {selected_week}</div>", unsafe_allow_html=True)
     
-    # Display Success / Warning feedback message if set
     if st.session_state.form_message:
         msg_type, msg_text = st.session_state.form_message
         if msg_type == "success":
@@ -193,8 +195,8 @@ if menu == "Timetable Manager":
             st.warning(msg_text)
         st.session_state.form_message = None
 
-    # Task Creation Popover / Form
-    with st.popover("➕ Add New Planned Task"):
+    # Task Creation Popover / Form (Simplified "Add New Task")
+    with st.popover("➕ Add New Task"):
         with st.form("add_task_form", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -202,9 +204,11 @@ if menu == "Timetable Manager":
                 category = st.selectbox("Category", ["Study", "Work", "Personal", "Health", "Other"])
             with c2:
                 day = st.selectbox("Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-                start_t = st.time_input("Start Time", value=time(9, 0))
+                # 12-Hour AM/PM Time Picker
+                start_t = st.time_input("Start Time (AM/PM)", value=time(9, 0), step=300)
             with c3:
-                end_t = st.time_input("End Time", value=time(10, 0))
+                # 12-Hour AM/PM Time Picker
+                end_t = st.time_input("End Time (AM/PM)", value=time(10, 0), step=300)
                 
             submit = st.form_submit_button("Add Task")
             if submit:
@@ -212,8 +216,9 @@ if menu == "Timetable Manager":
                     st.session_state.form_message = ("warning", "⚠️ Task title cannot be empty.")
                     st.rerun()
                 else:
-                    start_str = str(start_t)[:5]
-                    end_str = str(end_t)[:5]
+                    # Format to 12-Hour AM/PM String (e.g., "09:00 AM")
+                    start_str = format_time_12hr(start_t)
+                    end_str = format_time_12hr(end_t)
                     
                     # Duplicate Detection Logic
                     is_duplicate = any(
@@ -262,7 +267,6 @@ if menu == "Timetable Manager":
                     col1, col2, col3 = st.columns([4, 3, 3])
                     
                     with col1:
-                        # TRI-COLOR STATUS LOGIC
                         if task["status"] == "COMPLETED" and not task["is_rescheduled"]:
                             st.markdown(f"<span class='badge-green'>🟩 ✓ {task['title']}</span>", unsafe_allow_html=True)
                         elif task["is_rescheduled"]:
@@ -296,12 +300,12 @@ if menu == "Timetable Manager":
                         with b3:
                             with st.popover("Move"):
                                 n_day = st.selectbox("New Day", days_order, key=f"nd_{task['id']}")
-                                n_start = st.time_input("New Start", key=f"ns_{task['id']}")
-                                n_end = st.time_input("New End", key=f"ne_{task['id']}")
+                                n_start = st.time_input("New Start Time (AM/PM)", key=f"ns_{task['id']}", step=300)
+                                n_end = st.time_input("New End Time (AM/PM)", key=f"ne_{task['id']}", step=300)
                                 if st.button("Confirm", key=f"sm_{task['id']}"):
                                     task["day"] = n_day
-                                    task["start_time"] = str(n_start)[:5]
-                                    task["end_time"] = str(n_end)[:5]
+                                    task["start_time"] = format_time_12hr(n_start)
+                                    task["end_time"] = format_time_12hr(n_end)
                                     task["is_rescheduled"] = True
                                     task["status"] = "RESCHEDULED"
                                     st.rerun()
@@ -371,7 +375,7 @@ elif menu == "Weekly History & Analytics":
         skipped_pct = round((skipped / total_planned) * 100, 1)
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Planned Tasks", total_planned)
+        m1.metric("Total Tasks", total_planned)
         m2.metric("Goal Achievement %", f"{goal_achievement_pct}%")
         m3.metric("On-Schedule Completion", f"{on_schedule_pct}%")
         m4.metric("Rescheduled Completion", f"{rescheduled_pct}%")
@@ -399,7 +403,7 @@ elif menu == "Weekly History & Analytics":
         if st.session_state.settings["master_notifications"] and st.session_state.settings["weekly_motivation"]:
             if goal_achievement_pct >= 90:
                 st.balloons()
-                st.success(f"🎉 **Great Work!** You achieved {goal_achievement_pct}% of your weekly goals. You completed most of your planned tasks and successfully managed your rescheduled tasks.")
+                st.success(f"🎉 **Great Work!** You achieved {goal_achievement_pct}% of your weekly goals. You completed most of your tasks and successfully managed your rescheduled tasks.")
             else:
                 st.info(f"💪 **Keep Going!** You achieved {goal_achievement_pct}% of your weekly goals. Don't worry about missed tasks. Plan your next week better and keep improving!")
 
