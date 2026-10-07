@@ -8,7 +8,7 @@ import json
 # ==========================================
 st.set_page_config(
     page_title="Smart Timetable & Lifestyle Platform",
-    page_icon="📅",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -21,12 +21,28 @@ st.markdown("""
     .badge-blue { background-color: #DBEAFE; color: #1D4ED8; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #93C5FD; display: inline-block; }
     .badge-red { background-color: #FEE2E2; color: #B91C1C; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #FCA5A5; display: inline-block; }
     .badge-gray { background-color: #F1F5F9; color: #475569; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #CBD5E1; display: inline-block; }
+    .auth-box { max-width: 450px; margin: 0 auto; padding: 25px; border-radius: 10px; background-color: #F8FAFC; border: 1px solid #E2E8F0; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
 # SESSION STATE INITIALIZATION (PERSISTENCE)
 # ==========================================
+if "users" not in st.session_state:
+    st.session_state.users = {}  # Format: {email: password}
+
+if "last_email" not in st.session_state:
+    st.session_state.last_email = None
+
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None  # None = Not logged in, "Guest" = Guest Mode, Email = Logged in user
+
+if "schedule_type" not in st.session_state:
+    st.session_state.schedule_type = None  # "Weekly" or "Monthly"
+
+if "first_time_modal_shown" not in st.session_state:
+    st.session_state.first_time_modal_shown = False
+
 if "tasks" not in st.session_state:
     st.session_state.tasks = []
 
@@ -42,28 +58,131 @@ if "settings" not in st.session_state:
 if "current_week" not in st.session_state:
     st.session_state.current_week = 1
 
-# Messages for user feedback
 if "form_message" not in st.session_state:
     st.session_state.form_message = None
 
 # ==========================================
-# SIDEBAR NAVIGATION & WEEK CONTROLLER
+# AUTHENTICATION & LOGIN / SIGNUP MODULE
 # ==========================================
-st.sidebar.title("📌 Smart Schedule App")
+if st.session_state.current_user is None:
+    st.markdown("<h2 style='text-align: center; color: #1E293B;'>⚡ Smart Timetable Platform</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #64748B;'>Welcome! Please sign in, sign up, or continue as a guest to proceed.</p>", unsafe_allow_html=True)
+    
+    col_a, col_b, col_c = st.columns([1, 2, 1])
+    with col_b:
+        # Check if user previously logged in
+        if st.session_state.last_email:
+            st.info(f"💡 **It seems like you already have an account:** `{st.session_state.last_email}`")
+            
+        auth_mode = st.radio("Choose Action", ["Log In", "Sign Up", "Continue as Guest"], horizontal=True)
+        
+        if auth_mode == "Log In":
+            with st.form("login_form"):
+                email = st.text_input("Email Address", value=st.session_state.last_email if st.session_state.last_email else "")
+                password = st.text_input("Password", type="password")
+                btn_login = st.form_submit_button("Log In", type="primary", use_container_width=True)
+                
+                if btn_login:
+                    if email in st.session_state.users and st.session_state.users[email] == password:
+                        st.session_state.current_user = email
+                        st.session_state.last_email = email
+                        st.success("Logged in successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid email or password. Please try again or Sign Up.")
+
+        elif auth_mode == "Sign Up":
+            with st.form("signup_form"):
+                new_email = st.text_input("Enter Email Address")
+                new_pass = st.text_input("Create Password", type="password")
+                btn_signup = st.form_submit_button("Sign Up & Create Account", type="primary", use_container_width=True)
+                
+                if btn_signup:
+                    if not new_email.strip() or not new_pass.strip():
+                        st.warning("Please fill in all fields.")
+                    elif new_email in st.session_state.users:
+                        st.warning("Account already exists with this email! Please switch to Log In.")
+                    else:
+                        st.session_state.users[new_email] = new_pass
+                        st.session_state.current_user = new_email
+                        st.session_state.last_email = new_email
+                        st.success("Account created successfully!")
+                        st.rerun()
+
+        elif auth_mode == "Continue as Guest":
+            st.write("You can use the application as a guest without creating an account.")
+            if st.button("Proceed as Guest 🚀", type="primary", use_container_width=True):
+                st.session_state.current_user = "Guest"
+                st.rerun()
+
+        if st.session_state.last_email and auth_mode != "Continue as Guest":
+            if st.button("Switch Account / Clear Saved Email", use_container_width=True):
+                st.session_state.last_email = None
+                st.rerun()
+
+    st.stop()  # Stop execution until user authenticates
+
+# ==========================================
+# FIRST TIME SCHEDULE TYPE POPUP (DIALOG)
+# ==========================================
+@st.dialog("🎯 Welcome! Set Your Schedule Preference")
+def schedule_selection_dialog():
+    st.write("First time setting up? Choose how you would like to manage and organize your timetable:")
+    st.write("• **Weekly Schedule:** Manage tasks day-by-day for each week.")
+    st.write("• **Monthly Schedule:** Plan and overview tasks across the entire month.")
+    
+    selected_pref = st.radio("Select Schedule View Preference", ["Weekly Schedule", "Monthly Schedule"])
+    
+    if st.button("Save & Continue", type="primary"):
+        st.session_state.schedule_type = "Weekly" if "Weekly" in selected_pref else "Monthly"
+        st.session_state.first_time_modal_shown = True
+        st.rerun()
+
+if not st.session_state.first_time_modal_shown:
+    schedule_selection_dialog()
+
+# Fallback default if modal isn't set yet
+if not st.session_state.schedule_type:
+    st.session_state.schedule_type = "Weekly"
+
+# ==========================================
+# SIDEBAR NAVIGATION & USER CONTROLLER
+# ==========================================
+st.sidebar.title("🎯 Smart Schedule App")
+
+# User Account Header in Sidebar
+st.sidebar.markdown(f"👤 **Logged in as:** `{st.session_state.current_user}`")
+c_logout, c_switch = st.sidebar.columns(2)
+with c_logout:
+    if st.button("Log Out"):
+        st.session_state.current_user = None
+        st.rerun()
+with c_switch:
+    if st.button("Switch"):
+        st.session_state.current_user = None
+        st.rerun()
+
+st.sidebar.markdown("---")
 menu = st.sidebar.radio(
     "Navigation Menu",
-    ["Timetable & Daily Routine", "Weekly History & Analytics", "Islamic Lifestyle & Reminders", "System Settings"]
+    ["Timetable Manager", "Weekly History & Analytics", "Islamic Lifestyle & Reminders", "System Settings"]
 )
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Week History Selector")
+st.sidebar.subheader("📅 Schedule Preference")
+st.session_state.schedule_type = st.sidebar.radio(
+    "Active Mode",
+    ["Weekly", "Monthly"],
+    index=0 if st.session_state.schedule_type == "Weekly" else 1
+)
+
 selected_week = st.sidebar.number_input("Select Week (Week 1..N)", min_value=1, max_value=104, value=st.session_state.current_week)
 
 # ==========================================
-# MODULE 1: TIMETABLE & DAILY ROUTINE
+# MODULE 1: TIMETABLE MANAGER
 # ==========================================
-if menu == "Timetable & Daily Routine":
-    st.markdown(f"<div class='main-header'>🗓️ Weekly Timetable Manager — Week {selected_week}</div>", unsafe_allow_html=True)
+if menu == "Timetable Manager":
+    st.markdown(f"<div class='main-header'>🎯 Timetable Manager ({st.session_state.schedule_type} Mode) — Week {selected_week}</div>", unsafe_allow_html=True)
     
     # Display Success / Warning feedback message if set
     if st.session_state.form_message:
@@ -72,7 +191,6 @@ if menu == "Timetable & Daily Routine":
             st.success(msg_text)
         elif msg_type == "warning":
             st.warning(msg_text)
-        # Clear message after display
         st.session_state.form_message = None
 
     # Task Creation Popover / Form
@@ -247,13 +365,11 @@ elif menu == "Weekly History & Analytics":
         rescheduled_completed = sum(1 for t in week_tasks if t["is_rescheduled"] and t["completed"])
         skipped = sum(1 for t in week_tasks if t["status"] == "SKIPPED")
         
-        # Performance Formulas
         goal_achievement_pct = round(((direct_completed + rescheduled_completed) / total_planned) * 100, 1)
         on_schedule_pct = round((direct_completed / total_planned) * 100, 1)
         rescheduled_pct = round((rescheduled_completed / total_planned) * 100, 1)
         skipped_pct = round((skipped / total_planned) * 100, 1)
 
-        # High-Level Metrics Display
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Planned Tasks", total_planned)
         m2.metric("Goal Achievement %", f"{goal_achievement_pct}%")
@@ -278,7 +394,6 @@ elif menu == "Weekly History & Analytics":
             st.write(f"- **Direct Efficiency Rate:** {on_schedule_pct}%")
             st.write(f"- **Reschedule Recovery Rate:** {rescheduled_pct}%")
 
-        # Weekly Motivational Summary Evaluation (>= 90% Threshold)
         st.markdown("---")
         st.subheader("🏆 Weekly Motivational Summary")
         if st.session_state.settings["master_notifications"] and st.session_state.settings["weekly_motivation"]:
