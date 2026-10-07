@@ -4,16 +4,28 @@ from datetime import datetime, date, time
 import json
 
 # ==========================================
-# PAGE CONFIGURATION & CUSTOM STYLING
+# PAGE CONFIGURATION & LIVE TIME JS
 # ==========================================
 st.set_page_config(
-    page_title="Smart Timetable & Lifestyle Platform",
+    page_title="Smart Timetable Platform",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Tri-Color Status Badges & Modern Card UI
+# Live Device Time Reader JS Script
+st.components.v1.html("""
+    <script>
+        function updateDeviceTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: true });
+            window.parent.postMessage({type: 'streamlit:setComponentValue', value: timeStr}, '*');
+        }
+        setInterval(updateDeviceTime, 1000);
+    </script>
+""", height=0)
+
+# Custom Styling
 st.markdown("""
 <style>
     .main-header { font-size: 26px; font-weight: bold; color: #1E293B; margin-bottom: 12px; }
@@ -21,7 +33,8 @@ st.markdown("""
     .badge-blue { background-color: #DBEAFE; color: #1D4ED8; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #93C5FD; display: inline-block; }
     .badge-red { background-color: #FEE2E2; color: #B91C1C; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #FCA5A5; display: inline-block; }
     .badge-gray { background-color: #F1F5F9; color: #475569; padding: 5px 12px; border-radius: 6px; font-weight: 600; border: 1px solid #CBD5E1; display: inline-block; }
-    .auth-box { max-width: 450px; margin: 0 auto; padding: 25px; border-radius: 10px; background-color: #F8FAFC; border: 1px solid #E2E8F0; }
+    .hint-text { font-size: 13px; color: #64748B; margin-bottom: 8px; font-style: italic; }
+    .table-cell { word-wrap: break-word; min-width: 120px; white-space: normal; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -31,8 +44,16 @@ def format_time_12hr(t_obj):
         return t_obj.strftime("%I:%M %p")
     return str(t_obj)
 
+# Helper Function for Time Sorting
+def get_time_sort_key(task):
+    try:
+        t_str = task["start_time"]
+        return datetime.strptime(t_str, "%I:%M %p").time()
+    except:
+        return time(0, 0)
+
 # ==========================================
-# SESSION STATE INITIALIZATION (PERSISTENCE)
+# SESSION STATE INITIALIZATION
 # ==========================================
 if "users" not in st.session_state:
     st.session_state.users = {}
@@ -43,11 +64,14 @@ if "last_email" not in st.session_state:
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 
-if "schedule_type" not in st.session_state:
-    st.session_state.schedule_type = None
+if "view_format" not in st.session_state:
+    st.session_state.view_format = "List"  # "List" or "Table"
 
-if "first_time_modal_shown" not in st.session_state:
-    st.session_state.first_time_modal_shown = False
+if "schedule_type" not in st.session_state:
+    st.session_state.schedule_type = "Weekly"  # "Weekly" or "Monthly"
+
+if "table_row_count" not in st.session_state:
+    st.session_state.table_row_count = 10  # Default 10 rows
 
 if "tasks" not in st.session_state:
     st.session_state.tasks = []
@@ -128,31 +152,9 @@ if st.session_state.current_user is None:
     st.stop()
 
 # ==========================================
-# FIRST TIME SCHEDULE TYPE POPUP (DIALOG)
-# ==========================================
-@st.dialog("🎯 Welcome! Set Your Schedule Preference")
-def schedule_selection_dialog():
-    st.write("First time setting up? Choose how you would like to manage and organize your timetable:")
-    st.write("• **Weekly Schedule:** Manage tasks day-by-day for each week.")
-    st.write("• **Monthly Schedule:** Plan and overview tasks across the entire month.")
-    
-    selected_pref = st.radio("Select Schedule View Preference", ["Weekly Schedule", "Monthly Schedule"])
-    
-    if st.button("Save & Continue", type="primary"):
-        st.session_state.schedule_type = "Weekly" if "Weekly" in selected_pref else "Monthly"
-        st.session_state.first_time_modal_shown = True
-        st.rerun()
-
-if not st.session_state.first_time_modal_shown:
-    schedule_selection_dialog()
-
-if not st.session_state.schedule_type:
-    st.session_state.schedule_type = "Weekly"
-
-# ==========================================
 # SIDEBAR NAVIGATION & USER CONTROLLER
 # ==========================================
-st.sidebar.title("🎯 Smart Schedule App")
+st.sidebar.title("⚡ Smart Schedule App")
 
 st.sidebar.markdown(f"👤 **Logged in as:** `{st.session_state.current_user}`")
 c_logout, c_switch = st.sidebar.columns(2)
@@ -172,12 +174,11 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Schedule Preference")
-st.session_state.schedule_type = st.sidebar.radio(
-    "Active Mode",
-    ["Weekly", "Monthly"],
-    index=0 if st.session_state.schedule_type == "Weekly" else 1
-)
+st.sidebar.subheader("📊 Data Display Format")
+st.session_state.view_format = st.sidebar.radio("Show Data As", ["List", "Table"], index=0 if st.session_state.view_format == "List" else 1)
+
+st.sidebar.subheader("📅 Schedule Period")
+st.session_state.schedule_type = st.sidebar.radio("Active Period", ["Weekly", "Monthly"], index=0 if st.session_state.schedule_type == "Weekly" else 1)
 
 selected_week = st.sidebar.number_input("Select Week (Week 1..N)", min_value=1, max_value=104, value=st.session_state.current_week)
 
@@ -185,8 +186,11 @@ selected_week = st.sidebar.number_input("Select Week (Week 1..N)", min_value=1, 
 # MODULE 1: TIMETABLE MANAGER
 # ==========================================
 if menu == "Timetable Manager":
-    st.markdown(f"<div class='main-header'>🎯 Timetable Manager ({st.session_state.schedule_type} Mode) — Week {selected_week}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='main-header'>🎯 Timetable Manager ({st.session_state.schedule_type} - {st.session_state.view_format} View) — Week {selected_week}</div>", unsafe_allow_html=True)
     
+    # Live Device Time Display
+    st.caption(f"🕒 **Live Device Time:** {datetime.now().strftime('%I:%M:%S %p')} | Syncing active alerts in real-time.")
+
     if st.session_state.form_message:
         msg_type, msg_text = st.session_state.form_message
         if msg_type == "success":
@@ -195,48 +199,47 @@ if menu == "Timetable Manager":
             st.warning(msg_text)
         st.session_state.form_message = None
 
-    # Task Creation Popover / Form (Simplified "Add New Task")
+    # Task Creation Popover / Form
     with st.popover("➕ Add New Task"):
+        st.markdown("<div class='hint-text'>💡 Hint: Enter clear subject & task details so your notification alert shows exactly what to do!</div>", unsafe_allow_html=True)
         with st.form("add_task_form", clear_on_submit=True):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                title = st.text_input("Task Title", placeholder="")
-                category = st.selectbox("Category", ["Study", "Work", "Personal", "Health", "Other"])
-            with c2:
+            col_a, col_b = st.columns(2)
+            with col_a:
+                subject = st.text_input("Subject / Category", placeholder="e.g. Maths, Gym, Project")
+                title = st.text_input("Task Title / Detail", placeholder="e.g. Algebra Ex 1.1, Chest Workout")
                 day = st.selectbox("Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-                # 12-Hour AM/PM Time Picker
+            with col_b:
+                category = st.selectbox("Category Tag", ["Study", "Work", "Personal", "Health", "Other"])
+                # 12-Hour AM/PM Time Selector with explicit AM/PM Picker
                 start_t = st.time_input("Start Time (AM/PM)", value=time(9, 0), step=300)
-            with c3:
-                # 12-Hour AM/PM Time Picker
                 end_t = st.time_input("End Time (AM/PM)", value=time(10, 0), step=300)
                 
             submit = st.form_submit_button("Add Task")
             if submit:
-                if not title.strip():
-                    st.session_state.form_message = ("warning", "⚠️ Task title cannot be empty.")
+                if not subject.strip() or not title.strip():
+                    st.session_state.form_message = ("warning", "⚠️ Subject and Task Title cannot be empty.")
                     st.rerun()
                 else:
-                    # Format to 12-Hour AM/PM String (e.g., "09:00 AM")
                     start_str = format_time_12hr(start_t)
                     end_str = format_time_12hr(end_t)
                     
-                    # Duplicate Detection Logic
                     is_duplicate = any(
                         t["week"] == selected_week and
                         t["day"] == day and
+                        t["subject"].strip().lower() == subject.strip().lower() and
                         t["title"].strip().lower() == title.strip().lower() and
-                        t["start_time"] == start_str and
-                        t["end_time"] == end_str
+                        t["start_time"] == start_str
                         for t in st.session_state.tasks
                     )
                     
                     if is_duplicate:
-                        st.session_state.form_message = ("warning", f"⚠️ Task '{title}' already exists for {day} ({start_str} - {end_str})! Please make changes or add another task.")
+                        st.session_state.form_message = ("warning", f"⚠️ Task '{title}' for Subject '{subject}' already exists for {day} ({start_str})!")
                         st.rerun()
                     else:
                         new_id = len(st.session_state.tasks) + 1
                         st.session_state.tasks.append({
                             "id": new_id,
+                            "subject": subject.strip(),
                             "title": title.strip(),
                             "week": selected_week,
                             "day": day,
@@ -248,117 +251,170 @@ if menu == "Timetable Manager":
                             "completed": False,
                             "category": category
                         })
-                        st.session_state.form_message = ("success", f"✅ Task '{title}' added successfully to Week {selected_week}!")
+                        st.session_state.form_message = ("success", f"✅ Task '{title}' ({subject}) added successfully to {day} at {start_str}!")
                         st.rerun()
 
-    # Task List Display with Tri-Color Logic
+    # Filter tasks for selected week
     week_tasks = [t for t in st.session_state.tasks if t["week"] == selected_week]
 
-    if not week_tasks:
-        st.info(f"No tasks recorded for Week {selected_week}. Add tasks above to start building your routine.")
-    else:
-        days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        
-        for d in days_order:
-            day_tasks = [t for t in week_tasks if t["day"] == d]
-            if day_tasks:
-                st.subheader(f"📅 {d}")
-                for task in day_tasks:
-                    col1, col2, col3 = st.columns([4, 3, 3])
-                    
-                    with col1:
-                        if task["status"] == "COMPLETED" and not task["is_rescheduled"]:
-                            st.markdown(f"<span class='badge-green'>🟩 ✓ {task['title']}</span>", unsafe_allow_html=True)
-                        elif task["is_rescheduled"]:
-                            if task["completed"]:
-                                st.markdown(f"<span class='badge-blue'>🟦 ✓ {task['title']} (Rescheduled)</span>", unsafe_allow_html=True)
-                            else:
-                                st.markdown(f"<span class='badge-blue'>🟦 ↻ {task['title']} (Rescheduled)</span>", unsafe_allow_html=True)
-                        elif task["status"] == "SKIPPED":
-                            st.markdown(f"<span class='badge-red'>🟥 ✗ {task['title']}</span>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<span class='badge-gray'>⚪ {task['title']}</span>", unsafe_allow_html=True)
+    # ==========================================
+    # DATA FORMAT 1: LIST VIEW (TIME ALIGNED)
+    # ==========================================
+    if st.session_state.view_format == "List":
+        st.subheader("📋 Task List View (Chronologically Sorted)")
+        if not week_tasks:
+            st.info(f"No tasks recorded for Week {selected_week}. Add tasks above to populate list.")
+        else:
+            days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            
+            for d in days_order:
+                day_tasks = [t for t in week_tasks if t["day"] == d]
+                # Chronological Sorting: Sort by Start Time (10:00 AM before 12:00 PM)
+                day_tasks.sort(key=get_time_sort_key)
+                
+                if day_tasks:
+                    st.markdown(f"### 📅 {d}")
+                    for task in day_tasks:
+                        col1, col2, col3 = st.columns([4, 3, 3])
                         
-                        st.caption(f"Time: {task['start_time']} - {task['end_time']} | Category: {task['category']}")
+                        with col1:
+                            # Display Subject and Task Title
+                            task_display = f"**[{task['subject']}]** {task['title']}"
+                            if task["status"] == "COMPLETED" and not task["is_rescheduled"]:
+                                st.markdown(f"<span class='badge-green'>🟩 ✓ {task_display}</span>", unsafe_allow_html=True)
+                            elif task["is_rescheduled"]:
+                                status_txt = "(Rescheduled)"
+                                if task["completed"]:
+                                    st.markdown(f"<span class='badge-blue'>🟦 ✓ {task_display} {status_txt}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown(f"<span class='badge-blue'>🟦 ↻ {task_display} {status_txt}</span>", unsafe_allow_html=True)
+                            elif task["status"] == "SKIPPED":
+                                st.markdown(f"<span class='badge-red'>🟥 ✗ {task_display}</span>", unsafe_allow_html=True)
+                            else:
+                                st.markdown(f"<span class='badge-gray'>⚪ {task_display}</span>", unsafe_allow_html=True)
+                            
+                            st.caption(f"🕒 Time: **{task['start_time']} - {task['end_time']}** | Category: {task['category']}")
 
-                    with col2:
-                        st.caption(f"Original Schedule:\n{task['original_time']}")
+                        with col2:
+                            st.caption(f"Original Schedule:\n{task['original_time']}")
 
-                    with col3:
-                        b1, b2, b3 = st.columns(3)
-                        with b1:
-                            if st.button("Done", key=f"comp_{task['id']}"):
-                                task["completed"] = True
-                                if not task["is_rescheduled"]:
-                                    task["status"] = "COMPLETED"
-                                st.rerun()
-                        with b2:
-                            if st.button("Skip", key=f"skip_{task['id']}"):
-                                task["status"] = "SKIPPED"
-                                task["completed"] = False
-                                st.rerun()
-                        with b3:
-                            with st.popover("Move"):
-                                n_day = st.selectbox("New Day", days_order, key=f"nd_{task['id']}")
-                                n_start = st.time_input("New Start Time (AM/PM)", key=f"ns_{task['id']}", step=300)
-                                n_end = st.time_input("New End Time (AM/PM)", key=f"ne_{task['id']}", step=300)
-                                if st.button("Confirm", key=f"sm_{task['id']}"):
-                                    task["day"] = n_day
-                                    task["start_time"] = format_time_12hr(n_start)
-                                    task["end_time"] = format_time_12hr(n_end)
-                                    task["is_rescheduled"] = True
-                                    task["status"] = "RESCHEDULED"
+                        with col3:
+                            b1, b2, b3 = st.columns(3)
+                            with b1:
+                                if st.button("Done", key=f"comp_{task['id']}"):
+                                    task["completed"] = True
+                                    if not task["is_rescheduled"]:
+                                        task["status"] = "COMPLETED"
                                     st.rerun()
-                st.divider()
+                            with b2:
+                                if st.button("Skip", key=f"skip_{task['id']}"):
+                                    task["status"] = "SKIPPED"
+                                    task["completed"] = False
+                                    st.rerun()
+                            with b3:
+                                with st.popover("Move"):
+                                    n_day = st.selectbox("New Day", days_order, key=f"nd_{task['id']}")
+                                    n_start = st.time_input("New Start", key=f"ns_{task['id']}", step=300)
+                                    n_end = st.time_input("New End", key=f"ne_{task['id']}", step=300)
+                                    if st.button("Confirm", key=f"sm_{task['id']}"):
+                                        task["day"] = n_day
+                                        task["start_time"] = format_time_12hr(n_start)
+                                        task["end_time"] = format_time_12hr(n_end)
+                                        task["is_rescheduled"] = True
+                                        task["status"] = "RESCHEDULED"
+                                        st.rerun()
+                    st.divider()
 
-    # Notification Engine Status Section
+    # ==========================================
+    # DATA FORMAT 2: TABLE VIEW (DYNAMIC GRID)
+    # ==========================================
+    elif st.session_state.view_format == "Table":
+        st.subheader(f"📊 {st.session_state.schedule_type} Grid Timetable View")
+        st.caption("Note: Tasks added above will auto-intersect under their respective Subject and Day column.")
+
+        # Determine Table Columns
+        if st.session_state.schedule_type == "Weekly":
+            headers = ["Subjects", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        else:  # Monthly View (30 Day Columns + Subjects)
+            headers = ["Subjects"] + [f"Day {i}" for i in range(1, 31)]
+
+        # Unique Subjects from current tasks
+        existing_subjects = list(dict.fromkeys([t["subject"] for t in week_tasks]))
+        
+        # Ensure at least table_row_count rows exist
+        rows_data = []
+        for i in range(st.session_state.table_row_count):
+            row_dict = {h: "" for h in headers}
+            if i < len(existing_subjects):
+                subj = existing_subjects[i]
+                row_dict["Subjects"] = subj
+                
+                # Fill day columns with tasks matching this subject
+                for h in headers[1:]:
+                    matched_tasks = [
+                        f"{t['title']} ({t['start_time']})" for t in week_tasks
+                        if t["subject"].lower() == subj.lower() and (t["day"] == h or f"Day {t.get('day_num', '')}" == h)
+                    ]
+                    if matched_tasks:
+                        row_dict[h] = "\n".join(matched_tasks)
+            rows_data.append(row_dict)
+
+        # Convert to Pandas DataFrame for Flexible Grid Display
+        df_grid = pd.DataFrame(rows_data)
+        
+        # Display Interactive / Flexible Table
+        st.dataframe(df_grid, use_container_width=True, height=400)
+
+        # Dynamic Row Expansion Feature (Excel / MS Word Style)
+        c_add, c_space = st.columns([2, 8])
+        with c_add:
+            if st.button("➕ Add Row (Expand Table)", type="secondary"):
+                st.session_state.table_row_count += 1
+                st.rerun()
+
+    # Notification Status Section
     st.markdown("---")
-    st.subheader("🔔 Notification Engine Status")
-    
+    st.subheader("🔔 Notification Alert Engine")
     if st.session_state.settings["master_notifications"]:
-        st.success("🔔 **Notification Enabled:** You will be notified when your task time arrives.")
+        st.success("🔔 **Notifications Active:** You will receive push-style alerts with **Subject Name** and **Task Details** at scheduled 12-Hour AM/PM times.")
     else:
-        st.warning("⚠️ **Notification Disabled:** Better performance ke liye notification on karein ta ke aap apne task complete kar sakein.")
+        st.warning("⚠️ **Notifications Muted:** Enable master notifications in Settings to receive live alerts.")
 
-    # Clear Tasks Options Section
+    # Clear Tasks Section
     st.markdown("---")
     st.subheader("🗑️ Clear Tasks Options")
-    
     tab1, tab2 = st.tabs(["Clear All Tasks", "Clear Specific Tasks"])
     
     with tab1:
-        st.write("Click below to clear all tasks for the current week schedule.")
+        st.write("Click below to clear all tasks for Week " + str(selected_week))
         if st.button("Clear All Tasks for Week " + str(selected_week), type="primary"):
             st.session_state.tasks = [t for t in st.session_state.tasks if t["week"] != selected_week]
-            st.session_state.form_message = ("success", f"All tasks for Week {selected_week} have been cleared.")
+            st.session_state.form_message = ("success", f"All tasks for Week {selected_week} cleared successfully.")
             st.rerun()
 
     with tab2:
         if not week_tasks:
             st.info("No tasks available to clear.")
         else:
-            st.write("Select specific tasks to remove:")
             selected_to_remove = []
-            
             for task in week_tasks:
-                chk = st.checkbox(f"[{task['day']}] {task['title']} ({task['start_time']} - {task['end_time']})", key=f"chk_clear_{task['id']}")
+                chk = st.checkbox(f"[{task['day']}] {task['subject']} - {task['title']} ({task['start_time']})", key=f"chk_clear_{task['id']}")
                 if chk:
                     selected_to_remove.append(task["id"])
             
             if st.button("Clear Selected Tasks", type="primary"):
                 if selected_to_remove:
                     st.session_state.tasks = [t for t in st.session_state.tasks if t["id"] not in selected_to_remove]
-                    st.session_state.form_message = ("success", "Selected tasks have been removed successfully.")
+                    st.session_state.form_message = ("success", "Selected tasks removed successfully.")
                     st.rerun()
                 else:
-                    st.warning("Please select at least one task to clear.")
+                    st.warning("Please select at least one task.")
 
 # ==========================================
-# MODULE 2: WEEKLY HISTORY & ANALYTICS
+# MODULE 2: HISTORY & ANALYTICS
 # ==========================================
 elif menu == "Weekly History & Analytics":
     st.markdown(f"<div class='main-header'>📊 Weekly Performance Analytics — Week {selected_week}</div>", unsafe_allow_html=True)
-
     week_tasks = [t for t in st.session_state.tasks if t["week"] == selected_week]
 
     if not week_tasks:
@@ -381,7 +437,6 @@ elif menu == "Weekly History & Analytics":
         m4.metric("Rescheduled Completion", f"{rescheduled_pct}%")
 
         st.markdown("---")
-
         c_left, c_right = st.columns([1, 1])
         with c_left:
             st.subheader("📋 Status Breakdown")
@@ -398,29 +453,16 @@ elif menu == "Weekly History & Analytics":
             st.write(f"- **Direct Efficiency Rate:** {on_schedule_pct}%")
             st.write(f"- **Reschedule Recovery Rate:** {rescheduled_pct}%")
 
-        st.markdown("---")
-        st.subheader("🏆 Weekly Motivational Summary")
-        if st.session_state.settings["master_notifications"] and st.session_state.settings["weekly_motivation"]:
-            if goal_achievement_pct >= 90:
-                st.balloons()
-                st.success(f"🎉 **Great Work!** You achieved {goal_achievement_pct}% of your weekly goals. You completed most of your tasks and successfully managed your rescheduled tasks.")
-            else:
-                st.info(f"💪 **Keep Going!** You achieved {goal_achievement_pct}% of your weekly goals. Don't worry about missed tasks. Plan your next week better and keep improving!")
-
 # ==========================================
 # MODULE 3: ISLAMIC LIFESTYLE & REMINDERS
 # ==========================================
 elif menu == "Islamic Lifestyle & Reminders":
     st.markdown("<div class='main-header'>🕌 Islamic Lifestyle & Prayer Reminders</div>", unsafe_allow_html=True)
-
     if not st.session_state.settings["master_notifications"]:
-        st.warning("⚠️ All system notifications are currently disabled in Settings. Turn on notifications to activate Prayer Reminders.")
-    elif not st.session_state.settings["islamic_reminders"]:
-        st.info("Islamic reminders are toggled OFF in App Settings.")
+        st.warning("⚠️ Master notifications are currently disabled in Settings.")
     else:
-        st.success(f"📍 Location configured for Prayer Times: **{st.session_state.settings['location']}**")
-
-        st.subheader("🕋 Daily Prayer Schedule (Default Priority)")
+        st.success(f"📍 Location configured: **{st.session_state.settings['location']}**")
+        st.subheader("🕋 Daily Prayer Schedule")
         prayer_df = pd.DataFrame({
             "Prayer": ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"],
             "Time": ["05:10 AM", "12:15 PM", "03:45 PM", "06:10 PM", "07:30 PM"],
@@ -428,35 +470,19 @@ elif menu == "Islamic Lifestyle & Reminders":
         })
         st.table(prayer_df)
 
-        st.markdown("---")
-        st.subheader("📖 Day-Specific Reminders & Azkar")
-        today_str = datetime.now().strftime("%A")
-        
-        day_reminders = {
-            "Friday": "📖 **Friday Sunnah:** Recite Surah Al-Kahf & send abundant Darood Shareef upon Prophet Muhammad (PBUH).",
-            "Monday": "✨ **Monday Sunnah:** Voluntary Fasting day & Recite Morning Azkar.",
-            "Thursday": "✨ **Thursday Sunnah:** Evening Azkar & Preparation for Friday Jumu'ah.",
-            "Saturday": "📿 **Daily Azkar:** SubhanAllah (33x), Alhamdulillah (33x), Allahu Akbar (34x).",
-            "Sunday": "📿 **Daily Azkar:** Recite Ayatul Kursi after prayers & Astaghfirullah."
-        }
-        st.info(day_reminders.get(today_str, "📿 **Daily Reminder:** Maintain daily prayers, Quranic recitation, and morning/evening Azkar."))
-
 # ==========================================
 # MODULE 4: SYSTEM SETTINGS
 # ==========================================
 elif menu == "System Settings":
     st.markdown("<div class='main-header'>⚙️ Application Settings</div>", unsafe_allow_html=True)
-
     with st.form("settings_form"):
         st.subheader("🔔 Notification Rules Engine")
         master_notif = st.checkbox("Master Notifications Switch (ON/OFF)", value=st.session_state.settings["master_notifications"])
-        st.caption("Note: Turning Master Notifications OFF disables all system alerts, including Prayer Notifications.")
-        
-        daily_mot = st.checkbox("Enable Daily Motivation Alerts (>80% Completion Rule)", value=st.session_state.settings["daily_motivation"])
-        weekly_mot = st.checkbox("Enable Weekly Summary Alerts (>=90% Completion Rule)", value=st.session_state.settings["weekly_motivation"])
+        daily_mot = st.checkbox("Enable Daily Motivation Alerts", value=st.session_state.settings["daily_motivation"])
+        weekly_mot = st.checkbox("Enable Weekly Summary Alerts", value=st.session_state.settings["weekly_motivation"])
         
         st.subheader("🕌 Islamic Lifestyle Engine")
-        islamic_on = st.checkbox("Enable Prayer Schedules & Verified Reminders", value=st.session_state.settings["islamic_reminders"])
+        islamic_on = st.checkbox("Enable Prayer Schedules & Reminders", value=st.session_state.settings["islamic_reminders"])
         loc = st.text_input("City / Location", value=st.session_state.settings["location"])
 
         save = st.form_submit_button("Save Configuration")
